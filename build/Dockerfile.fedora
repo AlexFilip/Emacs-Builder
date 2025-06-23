@@ -1,0 +1,48 @@
+ARG DISTRO_VERSION=latest
+FROM fedora:${DISTRO_VERSION} AS builder
+
+COPY ./emacs /emacs
+
+WORKDIR /emacs
+
+RUN dnf update -y && dnf install -y \
+      gcc make git autoconf pkg-config \
+      texinfo \
+      libgccjit-devel zlib-devel gnutls-devel ncurses-devel \
+      wayland-devel libxkbcommon-devel gtk3-devel libXpm-devel giflib-devel && \
+    ./autogen.sh autoconf && \
+    ./configure --with-native-compilation --with-pgtk && \
+    make all && \
+    make install
+
+ARG DISTRO_VERSION=latest
+FROM fedora:${DISTRO_VERSION}
+
+# Install runtime dependencies for Emacs
+RUN dnf update -y && dnf install -y \
+      libgccjit \
+      gnutls \
+      ncurses-libs \
+      libwayland-client \
+      libxkbcommon \
+      gtk3 \
+      libXpm \
+      giflib \
+      libwebp
+
+# Copy the installed Emacs from the builder stage
+COPY --from=builder /usr/local /usr/local
+
+# Set the entry point to run Emacs
+ENTRYPOINT ["/usr/local/bin/emacs"]
+
+RUN groupadd -g 1000 user
+RUN useradd -d /home/user -s /bin/bash -m user -u 1000 -g 1000
+
+ENV XDG_RUNTIME_DIR=/tmp
+RUN mkdir -p /tmp && chown -R 1000:1000 /tmp && chmod 0700 /tmp
+
+USER user
+WORKDIR /home/user
+ENV HOME=/home/user
+

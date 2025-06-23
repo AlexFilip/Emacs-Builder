@@ -1,0 +1,91 @@
+#!/bin/sh
+
+set -e
+
+DISTRO_NAME=$(source /etc/os-release && echo $ID)
+DISTRO_VERSION=$(source /etc/os-release && echo $VERSION_ID)
+IMAGE_FULL_NAME="emacs-builder:$DISTRO_NAME$DISTRO_VERSION"
+
+if [[ "$1" == "--update-image" ]]; then
+    shift
+
+    REMOTE_REPO_NAME=emacs
+    LOCAL_REPO_NAME=emacs
+
+    if ! [[ -d $LOCAL_REPO_NAME ]]; then
+        echo "Running git clone"
+        git clone --depth 1 https://git.savannah.gnu.org/git/$REMOTE_REPO_NAME.git $LOCAL_REPO_NAME || true
+    fi
+
+    echo "Running git fetch"
+    git -C $LOCAL_REPO_NAME fetch --prune --tags || true
+
+    echo "Finding latest stable version"
+    HIGHEST_VERSION_TAG=$(git -C $LOCAL_REPO_NAME tag | awk -f compare.awk)
+
+    echo "Highest version = $HIGHEST_VERSION_TAG"
+    if [[ $HIGHEST_VERSION_TAG != $(git -C $LOCAL_REPO_NAME describe --exact-match --tags) ]]; then
+        echo "Checking out version $HIGHEST_VERSION_TAG"
+        git -C $LOCAL_REPO_NAME clean -Xdf
+        git -C $LOCAL_REPO_NAME checkout tags/$HIGHEST_VERSION_TAG
+        git -C $LOCAL_REPO_NAME pull --depth 1 origin tags/$HIGHEST_VERSION_TAG || true
+    fi
+
+    if [[ -z "$(docker image ls --filter reference="$IMAGE_FULL_NAME" -q)" ]]; then
+        DOCKERFILE="build/Dockerfile.$DISTRO_NAME"
+
+        if [[ -f $DOCKERFILE ]]; then
+            docker pull $DISTRO_NAME:$DISTRO_VERSION
+            docker build --build-arg DISTRO_VERSION=$DISTRO_VERSION -f $DOCKERFILE -t $IMAGE_FULL_NAME .
+        else
+            echo "Could not find dockerfile ($DOCKERFILE)" >> /dev/stderr
+        fi
+    fi
+fi
+
+HOST_CONFIG_DIR=$HOME/.config/emacs
+mkdir -p $HOST_CONFIG_DIR
+
+function docker_run_user() {
+    docker run -it --rm \
+        -u $(id -u):$(id -g) \
+        -v ./emacs:/emacs -w /emacs \
+        $IMAGE_FULL_NAME "${@}"
+}
+
+function docker_run_root() {
+    docker run -it --rm \
+        -v ./emacs:/emacs -w /emacs \
+        $IMAGE_FULL_NAME "${@}"
+}
+
+docker_run_user sh -c "
+./autogen.sh autoconf
+./configure \
+    --with-mailutils \
+    --with-native-compilation=aot \
+    --with-webp \
+    --with-gif \
+    --with-png \
+    --with-jpeg \
+    --with-rsvg \
+    --with-tiff \
+    --with-pgtk
+"
+
+CURRENT_DATE="$(date +%Y%m%d)"
+docker_run_user make -j8 all
+docker_run_root checkinstall \
+    --pkgname=emacs-custom \
+    --pkgversion="$CURRENT_DATE" \
+    --maintainer=alex \
+    --requires=libgccjit0,libgnutls30,libncurses6,libwayland-client0,libwayland-cursor0,libwayland-egl1,libxkbcommon0,libgtk-3-0,libxpm4,libgif7 \
+    --backup=no \
+    --deldoc=yes \
+    --fstrans=no \
+    --default
+
+# install with
+# sudo dpkg -i emacs/emacs-custom_20250506-1_amd64.deb
+# sudo apt -f install 
+

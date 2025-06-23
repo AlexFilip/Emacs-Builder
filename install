@@ -1,0 +1,6 @@
+#!/bin/sh
+
+CURRENT_DATE="$(date +%Y%m%d)"
+DEB_FILE="$(ls emacs/emacs-custom_${CURRENT_DATE}-1_amd64.deb)"
+dpkg -i --force-overwrite $DEB_FILE
+apt -f install
