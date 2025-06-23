@@ -85,7 +85,3 @@ docker_run_root checkinstall \
     --fstrans=no \
     --default
 
-# install with
-# sudo dpkg -i emacs/emacs-custom_20250506-1_amd64.deb
-# sudo apt -f install 
-
