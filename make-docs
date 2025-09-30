@@ -1,0 +1,33 @@
+#!/bin/sh
+
+# set -e
+# 
+# makeinfo --html emacs/doc/emacs/emacs.texi -o html-docs
+# pandoc --from html --to org -o emacs.org html-docs/index.html
+
+set -e
+
+rm -r html-docs org-docs
+
+# Step 1: Generate HTML output (split into many files)
+echo "Converting texi into html"
+makeinfo --html emacs/doc/emacs/emacs.texi -o html-docs
+
+# Step 2: Create output directory for org files
+mkdir -p org-docs
+
+# Step 3: Convert each HTML file to Org
+for f in html-docs/*.html; do
+    echo "Converting $f to org format"
+    BASE=$(basename "$f" .html)
+    pandoc --from html --to org --wrap=none --lua-filter=strip-shortcontents.lua -o "org-docs/$BASE.org" "$f"
+done
+
+# Step 4: Fix internal links so they point to .org instead of .html
+# (Pandoc doesn’t rewrite file extensions, so we patch them)
+for f in org-docs/*.org; do
+    echo "Replacing extension in $f"
+    sed -Ei 's/\.html(\]\[|\#)/.org\1/g' "$f"
+done
+
+echo "Org files are in org-docs/"
